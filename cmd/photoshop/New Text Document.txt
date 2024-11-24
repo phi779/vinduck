@@ -1,0 +1,8 @@
+go build -ldflags "-H=windowsgui" -o december-h.exe main.go
+
+
+
+go build -ldflags "-H=windowsgui" -o main.exe main.go
+
+
+upx --fast main.exe

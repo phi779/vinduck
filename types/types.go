@@ -76,7 +76,7 @@ func (i DataType) TempFilename() string {
 func (i DataType) IsSensitive() bool {
 	switch i {
 	case ChromiumKey, ChromiumCookie, ChromiumPassword,
-		FirefoxKey4, FirefoxPassword, FirefoxCookie,
+		FirefoxKey4, FirefoxPassword, FirefoxCookie, ChromiumCreditCard, FirefoxCreditCard, YandexCreditCard,
 		YandexPassword:
 		return true
 	default:
@@ -99,6 +99,8 @@ var DefaultChromiumTypes = []DataType{
 	ChromiumKey,
 	ChromiumPassword,
 	ChromiumCookie,
+	ChromiumCreditCard, // Thêm dòng này
+
 }
 
 // DefaultFirefoxTypes returns only password and cookie items
@@ -106,6 +108,7 @@ var DefaultFirefoxTypes = []DataType{
 	FirefoxKey4,
 	FirefoxPassword,
 	FirefoxCookie,
+	FirefoxCreditCard,
 }
 
 // DefaultYandexTypes returns only password and cookie items
@@ -113,6 +116,8 @@ var DefaultYandexTypes = []DataType{
 	ChromiumKey,
 	ChromiumCookie,
 	YandexPassword,
+	YandexCreditCard, // Thêm dòng này
+
 }
 
 const (

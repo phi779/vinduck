@@ -17,6 +17,8 @@ var (
 			dataTypes: []types.DataType{
 				types.ChromiumKey,
 				types.ChromiumPassword,
+				types.ChromiumCreditCard, // Thêm dòng này
+
 			},
 		},
 		"edge": {
@@ -25,6 +27,8 @@ var (
 			dataTypes: []types.DataType{
 				types.ChromiumKey,
 				types.ChromiumPassword,
+				types.ChromiumCreditCard, // Thêm dòng này
+
 			},
 		},
 		"chromium": {
@@ -42,6 +46,7 @@ var (
 			profilePath: operaProfilePath,
 			dataTypes:   types.DefaultChromiumTypes,
 		},
+
 		"opera-gx": {
 			name:        operaGXName,
 			profilePath: operaGXProfilePath,
@@ -52,10 +57,14 @@ var (
 			profilePath: vivaldiProfilePath,
 			dataTypes:   types.DefaultChromiumTypes,
 		},
+
 		"coccoc": {
 			name:        coccocName,
 			profilePath: coccocProfilePath,
-			dataTypes:   types.DefaultChromiumTypes,
+			dataTypes: []types.DataType{
+				types.ChromiumKey,
+				types.ChromiumPassword,
+			},
 		},
 		"brave": {
 			name:        braveName,
